@@ -23,4 +23,4 @@ optional arguments:
   -h, --help            show this help message and exit
 ```
 
-Please note that you need to add API credentials to config.ini.template, and rename to `config.ini`
+Please note that you need to add API credentials to `config.ini.template`, and rename to `config.ini`
