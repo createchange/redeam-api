@@ -61,7 +61,6 @@ def getAvailabilities(headers, supplier_id, product_id, start_date, end_date):
     Call to listAvailabilities Redeam endpoint to obtain availabilities as per: supplied_id, product_id, start_date, end_date
     Docs: https://docs.booking.sandbox.redeam.io/booking-api-reference-v1.2/#operation/listAvailabilities
     '''
-    print("Search Parameters:\nStart date: %s\nEnd date: %s\n" % (start_date, end_date))
     r = requests.get(
             "https://booking.sandbox.redeam.io/v1.2/suppliers/%s/products/%s/availabilities" % (supplier_id, product_id),
             params = [('start', start_date), ('end', end_date)],
@@ -69,6 +68,21 @@ def getAvailabilities(headers, supplier_id, product_id, start_date, end_date):
     )
     
     return r
+
+
+def getSupplierName(headers, supplier_id):
+    '''
+    called by getAvailabilities function, returns Supplier name for use in output of availabilities
+    Docs: https://docs.booking.sandbox.redeam.io/booking-api-reference-v1.2/#operation/getSupplier
+    '''
+    r = requests.get(
+            "https://booking.sandbox.redeam.io/v1.2/suppliers/%s" % supplier_id,
+            headers=headers,
+    )
+
+    data = json.loads(r.text)
+#    pprint(data)
+    return data['supplier']['mainLocation']['name']
 
 
 def getProductName(headers, supplier_id, product_id):
@@ -84,6 +98,22 @@ def getProductName(headers, supplier_id, product_id):
     data = json.loads(r.text)
     return data['product']['title']
 
+def getRate(headers, supplier_id, product_id, rate_id):
+    '''
+    called by getAvailabilities function, returns Rate for use in output of availabilities
+    Docs: https://docs.booking.sandbox.redeam.io/booking-api-reference-v1.2/#operation/getRate
+    '''
+    r = requests.get(
+            "https://booking.sandbox.redeam.io/v1.2/suppliers/%s/products/%s/rates/%s" % (supplier_id, product_id, rate_id),
+            headers=headers,
+    )
+
+    data = json.loads(r.text)
+    name = data['rate']['name']
+    prices = {}
+    for i in range(len(data['rate']['prices'])):
+        prices[data['rate']['prices'][i]['name']] = data['rate']['prices'][i]['retail']['amount']
+    return name, prices
 
 def apiCallErrorCheck(r):
     '''
@@ -112,21 +142,44 @@ def returnResponseData(data):
     for key in data['availabilities']['byRate'].keys():
         if data['availabilities']['byRate'][key]:
             data_exists = True
-            break
 
     if data_exists == False:
-        print("\nNo products. Please alter date parameters and try again.")
+        print("\nNo results. Please alter date parameters and try again.")
         exit()
-         
-    # Iterate over keys to obtain all results (not sure why my search returns two 
-    for key in data['availabilities']['byRate'].keys():
-        # Get length of availabilities list for iteration purposes
-        if data['availabilities']['byRate'][key]:
-            for i in range(len(data['availabilities']['byRate'][key]['availability'])):
-                # Get values of each availability
-                availability_info = data['availabilities']['byRate'][key]['availability'][i]
-                print("Product: %s\nID: %s\nStart: %s\nEnd: %s\nCapacity: %s\n" % (getProductName(headers, args.supplierid, args.productid), availability_info.get('id'), parse(availability_info.get('start')), parse(availability_info.get('end')), availability_info.get('capacity')))
 
+    # Create dict of rate results
+    rates = {}
+    x = 1
+    for key in data['availabilities']['byRate'].keys():
+        name, prices = getRate(headers, args.supplierid, args.productid, key)
+        supplier = getSupplierName(headers, args.supplierid)
+        rates[x] = {'key':key, 'name':"%s (%s)" % (name, supplier), 'priceAdult': prices['Adult'], 'priceChild':prices['Child']}
+        x += 1
+
+    # Print out rates results for uses to select from
+    for k,v in rates.items():
+        print("\n%s. %s\n   Pricing:\n      Adult: %s\n      Child: %s" % (k,v['name'],v['priceAdult'],v['priceChild']))
+        print("   Results: %s" % len(data['availabilities']['byRate'][v['key']]['availability']))
+
+    while True:
+        try:
+            rate_selection = int(input("\nPlease input number for which event you'd like availability for:\n> "))
+            key_selection = rates[rate_selection]
+
+            for i in range(len(data['availabilities']['byRate'][key]['availability'])):
+                # Return start/end datetime of each availability, as well as capacity
+                availability_info = data['availabilities']['byRate'][key]['availability'][i]
+                print("Start: %s\nEnd: %s\nCapacity: %s\n" % (parse(availability_info.get('start')).strftime("%A, %x @ %-I:%M%p %Z"), parse(availability_info.get('end')).strftime("%A, %x @ %-I:%M%p %Z"), availability_info.get('capacity')))
+            break
+            
+        # Reject bad input and send back to try statement    
+        except:
+            print("Please make a valid selection.")
+
+
+'''''''''''''''''
+MAIN
+'''''''''''''''''
 
 '''
 sets standard dates for search:
@@ -158,9 +211,7 @@ optional.add_argument("-h", "--help", action='help', default=SUPPRESS, help="sho
 # Parse arguments
 args = parser.parse_args(None if sys.argv[1:] else ['-h'])
 
-'''
-Main
-'''
+
 sdate, edate = sanitizeDateEntry(args.startdate, args.enddate)
 r = getAvailabilities(headers, args.supplierid, args.productid, sdate, edate)
 data = apiCallErrorCheck(r)
